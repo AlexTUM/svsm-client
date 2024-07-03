@@ -1,0 +1,1 @@
+savedcmd_/home/alex/repos/svsm-client/kmodule/Module.symvers :=  scripts/mod/modpost -M  -a    -N  -o /home/alex/repos/svsm-client/kmodule/Module.symvers -n -T /home/alex/repos/svsm-client/kmodule/modules.order -i Module.symvers -e 

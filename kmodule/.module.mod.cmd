@@ -1,0 +1,1 @@
+savedcmd_/home/alex/repos/svsm-client/kmodule/module.mod := printf '%s\n'   module.o | awk '!x[$$0]++ { print("/home/alex/repos/svsm-client/kmodule/"$$0) }' > /home/alex/repos/svsm-client/kmodule/module.mod
