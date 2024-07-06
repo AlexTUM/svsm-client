@@ -2,6 +2,6 @@
 *.ko
 *.obj
 *.mod*
-.module.o.cmd
+*.cmd
 modules.order
 Module.symvers

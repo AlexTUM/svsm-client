@@ -5,14 +5,20 @@
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
+#include <linux/kstrtox.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
+#include <asm/page.h>
+#include <asm/sev.h>
 #include <asm/errno.h>
+#include <asm/io.h>
 
 static dev_t dev = 0;
 static struct class *dev_cls;
 static struct cdev cdev;
+
+extern int do_svsm_protocol(struct svsm_call *call); /* in patched kernel */
 
 static int svsm_open(struct inode*, struct file *);
 static int svsm_release(struct inode*, struct file *);
@@ -20,6 +26,10 @@ static ssize_t svsm_read(struct file *, char __user *, size_t, loff_t *);
 static ssize_t svsm_write(struct file *, const char __user *, size_t, loff_t *);
 
 #define BUF_LEN 2048
+#define PAGE_4K (1UL << 12)
+
+const static u64 SVSM_CALL_BASE = 3UL << 32;
+const static u64 SVSM_CALL_HASH_SINGLE = SVSM_CALL_BASE | 1; 
 
 static struct file_operations fops = {
     .owner = THIS_MODULE,
@@ -68,13 +78,45 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
         return -1;
     }
 
+    for (int i = 0; i < BUF_LEN; i++) {
+        svsm_buf[i] = 0;
+    }
+
     int read_bytes = copy_from_user(svsm_buf, buf, length);
     if (read_bytes < 0) {
         pr_err("Error reading from userspace\n");
         return -1;
     }
 
-    return 0;
+    /* convert buffer content into number */
+    unsigned long addr_raw = 0;
+    if (kstrtoul(svsm_buf, 10, &addr_raw)) {
+        pr_err("Error trying to convert input into numeric value\n");
+        return -1;
+    }
+    /* convert into phyical address */
+    void *p_addr_ptr = (void *)addr_raw; /* better way to do this? */
+    unsigned long p_addr_phys = virt_to_phys(p_addr_ptr); 
+    unsigned long buf_addr_phys = virt_to_phys(svsm_buf);
+    /* TODO: what if it is userspace? */
+    /* make svsm call */
+    struct svsm_call check_call;
+    /* call id */
+    check_call.rax = SVSM_CALL_HASH_SINGLE;
+    /* physical address of page to check */
+    check_call.rcx = (u64) p_addr_phys;
+    /* page size used */
+    u64 page_size_indicator = 0;
+    if (PAGE_SIZE != PAGE_4K)
+        page_size_indicator = 1;
+    check_call.rdx = page_size_indicator;
+    /* physical address of report buffer */
+    check_call.r8 = (u64) buf_addr_phys;
+    /* size of report buffer */
+    check_call.r9 = (u64) BUF_LEN;
+
+    int ret = do_svsm_protocol(&check_call);
+    return (ssize_t) ret;
 }
 
 static int __init client_start(void) {
