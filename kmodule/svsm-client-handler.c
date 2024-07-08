@@ -90,7 +90,7 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
 
     /* convert buffer content into number */
     unsigned long addr_raw = 0;
-    if (kstrtoul(svsm_buf, 10, &addr_raw)) {
+    if (kstrtoul(svsm_buf, 16, &addr_raw)) {
         pr_err("Error trying to convert input into numeric value\n");
         return -1;
     }
