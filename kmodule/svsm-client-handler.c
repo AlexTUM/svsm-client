@@ -73,20 +73,23 @@ static ssize_t svsm_read(struct file *file, char __user *buf, size_t length, lof
 }
 
 static ssize_t svsm_write(struct file *file, const char __user *buf, size_t length, loff_t *offset) {
+    pr_info("Requesting report from svsm");
     if (length > BUF_LEN) {
         pr_err("Too much to write\n");
         return -1;
     }
 
     for (int i = 0; i < BUF_LEN; i++) {
-        svsm_buf[i] = 0;
+        svsm_buf[i] = '\0';
     }
+    pr_info("Buffer cleared");
 
     int read_bytes = copy_from_user(svsm_buf, buf, length);
     if (read_bytes < 0) {
         pr_err("Error reading from userspace\n");
         return -1;
     }
+    pr_info("Read %d bytes from user", read_bytes);
 
     /* convert buffer content into number */
     unsigned long addr_raw = 0;
@@ -94,6 +97,7 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
         pr_err("Error trying to convert input into numeric value\n");
         return -1;
     }
+    pr_info("Converted addr is %ld", addr_raw);
     /* convert into phyical address */
     void *p_addr_ptr = (void *)addr_raw; /* better way to do this? */
     unsigned long p_addr_phys = virt_to_phys(p_addr_ptr); 
@@ -116,6 +120,7 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
     check_call.r9 = (u64) BUF_LEN;
 
     int ret = do_svsm_protocol(&check_call);
+    pr_info("Return code is %d", ret);
     return (ssize_t) ret;
 }
 
