@@ -116,7 +116,7 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
     check_call.r9 = (u64) BUF_LEN;
 
     int ret = do_svsm_protocol(&check_call);
-    return (ssize_t) ret;
+    return 0;
 }
 
 static int __init client_start(void) {
