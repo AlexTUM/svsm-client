@@ -121,7 +121,7 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
 
     int ret = do_svsm_protocol(&check_call);
     pr_info("Return code is %d", ret);
-    return (ssize_t) ret;
+    return 0;
 }
 
 static int __init client_start(void) {
