@@ -8,17 +8,20 @@
 #include <linux/kstrtox.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/gfp.h>
+#include <linux/slab.h>
 
 #include <asm/page.h>
 #include <asm/sev.h>
 #include <asm/errno.h>
 #include <asm/io.h>
 
+#include "address_helper.h"
+
 static dev_t dev = 0;
 static struct class *dev_cls;
 static struct cdev cdev;
 
-extern int do_svsm_protocol(struct svsm_call *call); /* in patched kernel */
 
 static int svsm_open(struct inode*, struct file *);
 static int svsm_release(struct inode*, struct file *);
@@ -30,6 +33,8 @@ static ssize_t svsm_write(struct file *, const char __user *, size_t, loff_t *);
 
 const static u64 SVSM_CALL_BASE = 3UL << 32;
 const static u64 SVSM_CALL_HASH_SINGLE = SVSM_CALL_BASE | 1; 
+
+extern int do_svsm_protocol(struct svsm_call *call); /* in patched kernel */
 
 static struct file_operations fops = {
     .owner = THIS_MODULE,
@@ -73,7 +78,7 @@ static ssize_t svsm_read(struct file *file, char __user *buf, size_t length, lof
 }
 
 static ssize_t svsm_write(struct file *file, const char __user *buf, size_t length, loff_t *offset) {
-    pr_info("Requesting report from svsm");
+    pr_warn("Requesting report from svsm\n");
     if (length > BUF_LEN) {
         pr_err("Too much to write\n");
         return -1;
@@ -82,26 +87,45 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
     for (int i = 0; i < BUF_LEN; i++) {
         svsm_buf[i] = '\0';
     }
-    pr_info("Buffer cleared");
+    pr_warn("Buffer cleared");
 
     int read_bytes = copy_from_user(svsm_buf, buf, length);
     if (read_bytes < 0) {
         pr_err("Error reading from userspace\n");
         return -1;
     }
-    pr_info("Read %d bytes from user", read_bytes);
+    pr_warn("Read %d bytes from user\n", read_bytes);
 
     /* convert buffer content into number */
-    unsigned long addr_raw = 0;
-    if (kstrtoul(svsm_buf, 16, &addr_raw)) {
-        pr_err("Error trying to convert input into numeric value\n");
+    int req_pid = 0;
+    int add_start = 0;
+    for (add_start; add_start < 10; add_start++) {
+        if (svsm_buf[add_start] == ' ') {
+            svsm_buf[add_start] = '\0';
+            break;
+        }
+    }
+    if (kstrtoint(svsm_buf, 10, &req_pid)) {
+        pr_err("Error interpreting pid as numeric value\n");
         return -1;
     }
-    pr_info("Converted addr is %ld", addr_raw);
+    pr_warn("pid is %d\n", req_pid);
+    pr_warn("add_start is %d\n", add_start);
+    unsigned long addr_raw = 0;
+    if (kstrtoul(svsm_buf + add_start + 1, 16, &addr_raw)) {
+        pr_err("Error interpreting address as numeric value\n");
+        return -1;
+    }
+    pr_warn("vaddr of page is %lx\n", addr_raw);
     /* convert into phyical address */
-    void *p_addr_ptr = (void *)addr_raw; /* better way to do this? */
-    unsigned long p_addr_phys = virt_to_phys(p_addr_ptr); 
-    unsigned long buf_addr_phys = virt_to_phys(svsm_buf);
+    void *p_addr_ptr = (void *)addr_raw;
+    uint64_t p_addr_phys = pagewalki_for_pid(p_addr_ptr, req_pid);
+    pr_warn("paddr of page is %llx\n", p_addr_phys);
+    //unsigned long buf_addr_phys = virt_to_phys(svsm_buf);
+    void *tmp_buf_virt = kmalloc(BUF_LEN, GFP_KERNEL | __GFP_ZERO);
+    unsigned long tmp_buf_phys = virt_to_phys(tmp_buf_virt);
+
+    pr_warn("paddr of buf is %lx\n", tmp_buf_phys);
     /* TODO: what if it is userspace? */
     /* make svsm call */
     struct svsm_call check_call;
@@ -115,13 +139,13 @@ static ssize_t svsm_write(struct file *file, const char __user *buf, size_t leng
         page_size_indicator = 1;
     check_call.rdx = page_size_indicator;
     /* physical address of report buffer */
-    check_call.r8 = (u64) buf_addr_phys;
+    check_call.r8 = (u64) tmp_buf_phys;
     /* size of report buffer */
     check_call.r9 = (u64) BUF_LEN;
-
+    pr_warn("rax: %llx, rcx: %llx, rdx: %lld, r8: %llx, r9: %lld\n", check_call.rax, check_call.rcx, check_call.rdx, check_call.r8, check_call.r9);
     int ret = do_svsm_protocol(&check_call);
-    pr_info("Return code is %d", ret);
-    return 0;
+    pr_warn("Return code is %x", ret);
+    return (ssize_t) length;
 }
 
 static int __init client_start(void) {
